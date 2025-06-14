@@ -33,6 +33,10 @@ const userSchema = new Schema(
     profile: {
       type: String, // cloudinary url
     },
+    profileId: {
+      type: String, // Cloudinary public ID for image deletion
+      default: "",
+    },
     mobileNumber: {
       type: Number,
       unique: true,

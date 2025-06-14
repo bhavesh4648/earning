@@ -12,24 +12,7 @@ import {
   generateWalletKey,
 } from "../utils/generateKeys.js";
 import { sendVerificationEmail } from "../utils/email.js";
-
-const generateAccessAndRefereshTokens = async (userId) => {
-  try {
-    const user = await User.findById(userId);
-    const accessToken = user.generateAccessToken();
-    const refreshToken = user.generateRefreshToken();
-
-    user.refreshToken = refreshToken;
-    await user.save({ validateBeforeSave: false });
-
-    return { accessToken, refreshToken };
-  } catch (error) {
-    throw new ApiError(
-      500,
-      "Something went wrong while generating referesh and access token"
-    );
-  }
-};
+import fs from "fs";
 
 const registerUser = asyncHandler(async (req, res) => {
   const {
@@ -198,22 +181,6 @@ const loginUser = asyncHandler(async (req, res) => {
   );
 });
 
-const logoutUser = asyncHandler(async (req, res) => {
-  await User.findByIdAndUpdate(
-    req.user._id,
-    {
-      $unset: {
-        refreshToken: 1, // this removes the field from document
-      },
-    },
-    {
-      new: true,
-    }
-  );
-
-  return res.status(200).json(new ApiResponse(200, {}, "User logged Out"));
-});
-
 const changeCurrentPassword = asyncHandler(async (req, res) => {
   const { oldPassword, newPassword } = req.body;
 
@@ -261,43 +228,65 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "Account details updated successfully"));
 });
 
-const updateUserAvatar = asyncHandler(async (req, res) => {
-  const avatarLocalPath = req.file?.path;
+const updateUserProfile = asyncHandler(async (req, res) => {
+  const profileLocalPath = req.file?.path;
 
-  if (!avatarLocalPath) {
-    throw new ApiError(400, "Avatar file is missing");
+  if (!profileLocalPath) {
+    throw new ApiError(400, "Profile image file is missing");
   }
 
-  //TODO: delete old image - assignment
+  // Upload new profile image to Cloudinary
+  const uploadedProfile = await uploadOnCloudinary(profileLocalPath);
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
+  // Delete local temp file
+  fs.unlink(profileLocalPath, (err) => {
+    if (err) console.error("Error deleting local file:", err);
+  });
 
-  if (!avatar.url) {
-    throw new ApiError(400, "Error while uploading on avatar");
+  if (!uploadedProfile?.url) {
+    throw new ApiError(500, "Failed to upload profile image to Cloudinary");
   }
 
-  const user = await User.findByIdAndUpdate(
-    req.user?._id,
-    {
-      $set: {
-        avatar: avatar.url,
-      },
-    },
-    { new: true }
-  ).select("-password");
+  const userId = req.user?._id;
+  if (!userId) {
+    throw new ApiError(401, "Unauthorized: User ID missing");
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  // Delete old profile image from Cloudinary if exists
+  if (user.profileId) {
+    try {
+      await deleteFromCloudinary(user.profileId);
+    } catch (err) {
+      console.error("Failed to delete old profile image:", err.message);
+    }
+  }
+
+  // Update profile with new image URL and Cloudinary ID
+  user.profile = uploadedProfile.url;
+  user.profileId = uploadedProfile.public_id;
+  await user.save();
+
+  const sanitizedUser = user.toObject();
+  delete sanitizedUser.password;
 
   return res
     .status(200)
-    .json(new ApiResponse(200, user, "Avatar image updated successfully"));
+    .json(
+      new ApiResponse(200, sanitizedUser, "Profile image updated successfully")
+    );
 });
 
 export {
   registerUser,
   verifyEmail,
   loginUser,
-  logoutUser,
   changeCurrentPassword,
   getCurrentUser,
   updateAccountDetails,
-  updateUserAvatar,
+  updateUserProfile,
 };
