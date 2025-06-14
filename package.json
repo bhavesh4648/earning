@@ -1,7 +1,7 @@
 {
   "name": "nodejs",
   "version": "1.0.0",
-  "description": "nodejs structure",
+  "description": "earning",
   "type": "module",
   "main": "index.js",
   "scripts": {
